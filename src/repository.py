@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from .audit import make_entry, utc_now
 from .domain import ConflictError, NotFoundError
-from .rules import ID_PREFIX, STATES
+from .rules import FOLLOW_UP_KIND, ID_PREFIX, STATES
 
 
 class Repository:
@@ -54,6 +54,19 @@ class Repository:
                     created_at TEXT NOT NULL,
                     UNIQUE(item_id, external_ref)
                 );
+                CREATE TABLE IF NOT EXISTS measurements (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+                    measured_at TEXT NOT NULL,
+                    dose REAL NOT NULL,
+                    conclusion TEXT NOT NULL
+                        CHECK(conclusion IN ('pending','normal','exceeded')),
+                    measured_by TEXT NOT NULL,
+                    created_by TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_measurements_item
+                    ON measurements(item_id, id);
                 CREATE TABLE IF NOT EXISTS audit_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     action TEXT NOT NULL,
@@ -156,6 +169,48 @@ class Repository:
                 (item_id,),
             ).fetchone()
         return int(row["n"])
+
+    def add_measurement(self, item_id: int, measured_at: str, dose: float,
+                        conclusion: str, measured_by: str, actor: str) -> Dict[str, Any]:
+        now = utc_now()
+        self.get_item(item_id)
+        with self._lock, self.conn:
+            cur = self.conn.execute(
+                """INSERT INTO measurements(item_id, measured_at, dose, conclusion,
+                   measured_by, created_by, created_at) VALUES(?,?,?,?,?,?,?)""",
+                (item_id, measured_at, dose, conclusion, measured_by, actor, now),
+            )
+            measurement_id = int(cur.lastrowid)
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM measurements WHERE id=?", (measurement_id,)
+            ).fetchone()
+        return dict(row)
+
+    def list_measurements(self, item_id: int) -> List[Dict[str, Any]]:
+        self.get_item(item_id)
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT * FROM measurements WHERE item_id=? ORDER BY id", (item_id,)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def latest_measurement(self, item_id: int) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM measurements WHERE item_id=? ORDER BY id DESC LIMIT 1",
+                (item_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def follow_up_completed(self, item_id: int) -> bool:
+        with self._lock:
+            row = self.conn.execute(
+                """SELECT COUNT(*) AS n FROM records
+                   WHERE item_id=? AND kind=? AND status='closed'""",
+                (item_id, FOLLOW_UP_KIND),
+            ).fetchone()
+        return int(row["n"]) > 0
 
     def append_audit(self, action: str, entity_type: str, entity_id: int,
                      actor: str, detail: dict) -> Dict[str, Any]:
