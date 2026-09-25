@@ -15,6 +15,7 @@ class FailureTest(unittest.TestCase):
         payload={"kind":"action","detail":"same reference","status":"open","external_ref":"DUP-1"}
         self.service.add_record(self.item["id"],payload,"recorder",'radiation_officer')
         with self.assertRaises(ConflictError): self.service.add_record(self.item["id"],payload,"recorder",'radiation_officer')
+        self.service.add_measurement(self.item["id"],{"measured_at":"2026-09-25T08:00:00Z","dose":6,"conclusion":"exceeded","measured_by":"lab"},"recorder",'radiation_officer')
         current=self.service.get_item(self.item["id"],"viewer")
         for target in STATES[1:-1]: current=self.service.transition(current["id"],target,current["version"],"reviewer",TRANSITION_ROLES[target][0])
         with self.assertRaises(ConflictError): self.service.transition(current["id"],STATES[-1],current["version"],"reviewer",TRANSITION_ROLES[STATES[-1]][0])

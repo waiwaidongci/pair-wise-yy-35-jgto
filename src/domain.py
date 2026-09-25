@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 class ErrorKind:
     VALIDATION="validation"; NOT_FOUND="not_found"; FORBIDDEN="forbidden"; CONFLICT="conflict"
@@ -11,12 +12,17 @@ class NotFoundError(DomainError): kind=ErrorKind.NOT_FOUND
 class PermissionDenied(DomainError): kind=ErrorKind.FORBIDDEN
 class ConflictError(DomainError): kind=ErrorKind.CONFLICT
 SEVERITIES=['low', 'elevated', 'high', 'critical']; STATES=['recorded', 'reviewing', 'investigation', 'follow_up', 'closed']; ROLES=['dosimetrist', 'radiation_officer', 'health_physicist', 'viewer']
+MEASURE_KIND='measurement'; CONCLUSIONS=['normal', 'exceeded', 'inconclusive']; TERMINAL_CONCLUSIONS=set(['normal', 'exceeded'])
+FOLLOW_UP_KIND='medical_follow_up'
 @dataclass(frozen=True)
 class Item:
     id:int; title:str; description:str; severity:str; quantity:float; threshold:float; status:str; version:int; external_ref:Optional[str]; created_by:str; created_at:str; updated_at:str
 @dataclass(frozen=True)
 class Record:
     id:int; item_id:int; kind:str; detail:str; status:str; external_ref:Optional[str]; created_by:str; created_at:str
+@dataclass(frozen=True)
+class Measurement:
+    id:int; item_id:int; measured_at:str; dose:float; conclusion:str; measured_by:str; created_by:str; created_at:str
 @dataclass(frozen=True)
 class AuditEntry:
     id:int; action:str; entity_type:str; entity_id:int; actor:str; detail:Dict[str,Any]; previous_hash:str; entry_hash:str; created_at:str
@@ -28,6 +34,18 @@ def require_text(value,field,max_length=2000):
 def normalize_severity(value):
     if value not in SEVERITIES: raise ValidationError("severity不在允许范围内")
     return value
+def normalize_conclusion(value):
+    if value not in CONCLUSIONS: raise ValidationError("conclusion必须是normal、exceeded或inconclusive")
+    return value
+def require_measured_at(value):
+    value=require_text(value,"measured_at",100)
+    try:
+        parsed=datetime.fromisoformat(value.replace("Z","+00:00"))
+    except ValueError as exc:
+        raise ValidationError("measured_at必须是ISO 8601时间") from exc
+    if parsed.tzinfo is None:
+        parsed=parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).replace(microsecond=0).isoformat()
 def require_number(value,field,minimum=0.0):
     if isinstance(value,bool): raise ValidationError(f"{field}必须是数字")
     try: number=float(value)

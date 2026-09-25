@@ -25,14 +25,16 @@ python3 app.py --db ./data.db --port 8312
 ## 主要接口
 
 - `GET /health`
-- `GET /api/items`
+- `GET /api/items`（未关闭事件按报告期限剩余时间升序，已关闭排在最后）
 - `POST /api/items`
 - `GET /api/items/{id}`
 - `POST /api/items/{id}/records`
+- `GET /api/items/{id}/measurements`：事件下的复测检测记录历史
+- `POST /api/items/{id}/measurements`：追加一次复测，字段为`measured_at`（ISO 8601）、`dose`、`conclusion`、`measured_by`
 - `POST /api/items/{id}/transition`，必须提交`expected_version`
 - `GET /api/audit`
 
-允许角色：dosimetrist, radiation_officer, health_physicist, viewer。剂量与调查水平之比决定升级程度，超过阈值必须进入调查；更正剂量不能覆盖已确认审计记录。
+允许角色：dosimetrist, radiation_officer, health_physicist, viewer。复测结论取`normal`/`exceeded`/`inconclusive`，只追加不改写，早先确认的值继续留在历史里；**末次复测**的剂量与结论用于计算优先级、调查门槛和报告期限（事件上同时保留`original_quantity`原始剂量）。复测未收齐（无检测或末次结论为`inconclusive`）时事件停在复核中，不能进入调查；关闭前必须存在一条已关闭的`medical_follow_up`记录，即医学随访完成，且无其他未关闭事项。剂量与调查水平之比决定升级程度，更正剂量不能覆盖已确认审计记录。
 
 ## 测试
 
